@@ -1,0 +1,177 @@
+// Wire contract between the connector and the relay.
+
+syntax = "proto3";
+package vedavid.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Served by the relay on :8443, only when the handshake produced no verified client certificate.
+service Bootstrap {
+  rpc Enroll(EnrollRequest) returns (EnrollResponse);
+}
+
+message EnrollRequest {
+  string enrollment_token = 1;   // opaque, from the admin portal
+  bytes  csr_der          = 2;   // PKCS#10 DER. Key never leaves the pod.
+  ConnectorBuild build        = 3;
+}
+
+message ConnectorBuild {
+  string version     = 1;  // semver
+  string git_sha     = 2;
+  string platform    = 3;  // "linux/amd64"
+  string k8s_version = 4;  // best effort; may be empty
+}
+
+message EnrollResponse {
+  repeated bytes cert_chain_der   = 1;  // leaf first, then intermediate
+  repeated bytes trust_bundle_der = 2;  // roots to pin from now on (may be >1)
+  string spiffe_id                = 3;
+  google.protobuf.Timestamp not_after = 4;
+  repeated string relay_endpoints = 5;  // preferred dial order, cached by connector
+}
+
+// Served by the connector on the inverted tunnel connection, where the relay is the HTTP/2 client.
+service Connector {
+  rpc InstantQuery(InstantQueryRequest) returns (QueryResult);
+  rpc RangeQuery(RangeQueryRequest)     returns (QueryResult);
+  rpc BatchQuery(BatchQueryRequest)     returns (stream PanelResult);
+  rpc Labels(LabelsRequest)             returns (LabelsResponse);
+  rpc LabelValues(LabelValuesRequest)   returns (LabelValuesResponse);
+  rpc Series(SeriesRequest)             returns (SeriesResponse);
+
+  rpc Events(EventsRequest)                         returns (stream ConnectorEvent);
+  rpc InstallCertificate(InstallCertificateRequest) returns (InstallCertificateResponse);
+  rpc Drain(DrainRequest)                           returns (DrainResponse);
+}
+
+message InstantQueryRequest {
+  string query      = 1;  // PromQL
+  int64  time_ms    = 2;  // 0 = now
+  int64  timeout_ms = 3;
+}
+
+message RangeQueryRequest {
+  string query      = 1;
+  int64  start_ms   = 2;
+  int64  end_ms     = 3;
+  int32  max_points = 4;  // connector derives `step` from this
+  int64  timeout_ms = 5;
+}
+
+message BatchQueryRequest {
+  string batch_id            = 1;
+  repeated PanelQuery panels = 2;
+  int64 deadline_ms          = 3;  // absolute; connector abandons anything past it
+}
+
+message PanelQuery {
+  string panel_id = 1;
+  oneof q {
+    InstantQueryRequest instant = 2;
+    RangeQueryRequest   range   = 3;
+  }
+}
+
+message PanelResult {
+  string panel_id = 1;
+  oneof outcome {
+    QueryResult result = 2;
+    QueryError  error  = 3;
+  }
+}
+
+enum ResultType {
+  RESULT_TYPE_UNSPECIFIED = 0;
+  RESULT_TYPE_VECTOR      = 1;
+  RESULT_TYPE_MATRIX      = 2;
+  RESULT_TYPE_SCALAR      = 3;
+}
+
+message Sample    { int64 t_ms = 1; double v = 2; }
+message LabelPair { string name = 1; string value = 2; }
+
+message TimeSeries {
+  repeated LabelPair labels = 1;
+  repeated Sample samples   = 2;
+}
+
+message QueryResult {
+  ResultType type            = 1;
+  repeated TimeSeries series = 2;
+  repeated string warnings   = 3;  // MUST be surfaced to the user
+  DownsampleInfo downsample  = 4;
+  int64 upstream_duration_ms = 5;
+}
+
+message DownsampleInfo {
+  int64 step_ms         = 1;  // step actually sent upstream
+  int32 points_returned = 2;
+  bool  decimated       = 3;  // true if post-hoc LTTB was also applied
+}
+
+message QueryError {
+  QueryErrorKind kind = 1;
+  string message      = 2;  // upstream message, verbatim, for the status page
+}
+
+enum QueryErrorKind {
+  QUERY_ERROR_UNSPECIFIED          = 0;
+  QUERY_ERROR_BAD_QUERY            = 1;  // 400 upstream
+  QUERY_ERROR_UNAUTHORIZED         = 2;  // 401/403 — usually a bad tenant header
+  QUERY_ERROR_TIMEOUT              = 3;
+  QUERY_ERROR_UPSTREAM_UNREACHABLE = 4;
+  QUERY_ERROR_LIMIT_EXCEEDED       = 5;  // enforced by the connector
+  QUERY_ERROR_UPSTREAM_ERROR       = 6;  // 5xx
+}
+
+message LabelsRequest       { int64 start_ms = 1; int64 end_ms = 2; repeated string match = 3; }
+message LabelsResponse      { repeated string names = 1; repeated string warnings = 2; }
+message LabelValuesRequest  { string label = 1; int64 start_ms = 2; int64 end_ms = 3; repeated string match = 4; }
+message LabelValuesResponse { repeated string values = 1; repeated string warnings = 2; }
+message SeriesRequest       { repeated string match = 1; int64 start_ms = 2; int64 end_ms = 3; }
+message SeriesResponse      { repeated TimeSeries series = 1; }  // labels only, samples empty
+
+message EventsRequest {}
+
+message ConnectorEvent {
+  oneof event {
+    Heartbeat      heartbeat = 1;
+    RenewalRequest renewal   = 2;
+    UpstreamStatus upstream  = 3;
+    QueryTelemetry telemetry = 4;
+  }
+}
+
+message Heartbeat {
+  google.protobuf.Timestamp sent_at        = 1;
+  google.protobuf.Timestamp cert_not_after = 2;
+}
+
+message RenewalRequest { bytes csr_der = 1; }
+
+message UpstreamStatus {
+  bool   reachable       = 1;
+  string flavor_detected = 2;  // from /api/v1/status/buildinfo where available
+  QueryError last_error  = 3;  // unset if none
+  google.protobuf.Timestamp last_success = 4;
+}
+
+message QueryTelemetry {
+  int64 window_start_ms  = 1;
+  int64 window_end_ms    = 2;
+  int32 queries          = 3;
+  int32 errors           = 4;
+  int64 p50_duration_ms  = 5;
+  int64 p95_duration_ms  = 6;
+  int64 samples_returned = 7;  // proxy for the customer's query cost
+}
+
+message InstallCertificateRequest {
+  repeated bytes cert_chain_der   = 1;
+  repeated bytes trust_bundle_der = 2;  // full replacement, enables root rotation
+}
+message InstallCertificateResponse { google.protobuf.Timestamp not_after = 1; }
+
+message DrainRequest  { int32 reconnect_after_ms = 1; }
+message DrainResponse {}
