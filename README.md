@@ -63,7 +63,7 @@ queries a real Prometheus. Without `VEDAVID_TEST_PROMETHEUS` those tests skip
 rather than fail, so `cargo test` stays useful on a machine without one. CI sets
 it, so they always run there.
 
-`nix develop` provides `protoc` and a `prometheus` binary.
+Building needs `protoc` on `PATH`, because the proto is compiled at build time.
 
 ## The wire contract
 
