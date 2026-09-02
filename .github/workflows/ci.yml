@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ci-${{ github.ref }}
+      cancel-in-progress: true
+    env:
+      PROMETHEUS_VERSION: 3.14.0
+      VEDAVID_TEST_PROMETHEUS: http://127.0.0.1:9099
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      # The proto build script shells out to protoc; the runner image has none.
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      # A real Prometheus, so the integration tests are not mocked away.
+      - name: Start Prometheus
+        run: |
+          curl -sSfL -o prom.tar.gz \
+            "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/prometheus-${PROMETHEUS_VERSION}.linux-amd64.tar.gz"
+          tar -xzf prom.tar.gz
+          cat > prom.yml <<'CFG'
+          global:
+            scrape_interval: 1s
+          scrape_configs:
+            - job_name: prometheus
+              static_configs:
+                - targets: ["127.0.0.1:9099"]
+          CFG
+          "./prometheus-${PROMETHEUS_VERSION}.linux-amd64/prometheus" \
+            --config.file=prom.yml --web.listen-address=127.0.0.1:9099 \
+            --storage.tsdb.path=/tmp/promdata &
+          for i in $(seq 1 60); do
+            curl -sf http://127.0.0.1:9099/-/ready > /dev/null && break
+            sleep 1
+          done
+          # The integration tests assert on scraped samples, so wait for some.
+          sleep 5
+          curl -sf "http://127.0.0.1:9099/api/v1/query?query=up" | grep -q '"value"'
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test
