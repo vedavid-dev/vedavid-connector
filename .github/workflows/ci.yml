@@ -10,8 +10,6 @@ jobs:
       group: ci-${{ github.ref }}
       cancel-in-progress: true
     services:
-      # A real Prometheus, so the integration tests are not mocked away. Its
-      # default config scrapes itself, which is all these tests need.
       prometheus:
         image: prom/prometheus:v3.14.0
         ports:
@@ -27,11 +25,9 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # The proto build script shells out to protoc; the runner image has none.
       - name: Install protoc
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
-      # Ready is not the same as scraped, and the tests assert on samples.
       - name: Wait for the first scrape
         run: |
           for _ in $(seq 1 40); do
