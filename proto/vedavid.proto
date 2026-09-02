@@ -1,4 +1,4 @@
-// Wire contract shared by the connector and relay; the connection shapes are in the relay and connector specs.
+// Wire contract between the connector and the relay.
 
 syntax = "proto3";
 package vedavid.v1;

@@ -67,7 +67,6 @@ Building needs `protoc` on `PATH`, because the proto is compiled at build time.
 
 ## The wire contract
 
-`proto/vedavid.proto` is vendored. It is shared with the relay, whose repository
-is private, so a path or submodule into it would not resolve for anyone cloning
-this one. Changing it here changes only this side — the relay's copy is
-authoritative.
+`proto/vedavid.proto` defines how the connector and the relay talk to each
+other. This is where it lives, and it is compiled at build time, so changing it
+changes the contract.
