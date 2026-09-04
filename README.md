@@ -28,10 +28,6 @@ With a relay to talk to, the connector enrols and then serves queries over the
 connection it opened:
 
 ```sh
-VEDAVID_RELAY_ADDR=relay.vedavid.dev:8443 \
-VEDAVID_RELAY_CA=./relay-ca.pem \
-VEDAVID_ENROLMENT_TOKEN_FILE=./enrolment-token \
-VEDAVID_PROMETHEUS_URL=http://prometheus:9090 \
 cargo run
 ```
 
