@@ -8,7 +8,8 @@ point it at, and returns the result.
 
 ## Status
 
-Early. What works today is the query path, served over a plain gRPC listener:
+Early. It enrols, dials the relay and answers queries over that connection —
+but the relay it talks to is not running anywhere yet.
 
 | RPC | |
 | --- | --- |
@@ -16,23 +17,59 @@ Early. What works today is the query path, served over a plain gRPC listener:
 | `RangeQuery` | `/api/v1/query_range`, with the step derived from a point budget |
 | `Labels`, `LabelValues`, `Series` | the matching `/api/v1` endpoints |
 
-`BatchQuery`, `Events`, `InstallCertificate` and `Drain` return `Unimplemented`.
-They belong with the outbound tunnel and mutual TLS, which are not built yet, so
-this is not usable as a product — it is the query engine those will carry.
+`BatchQuery`, `Events`, `InstallCertificate` and `Drain` return
+`Unimplemented`. `Events` is the next one worth having: it is the stream the
+relay watches to notice a connector that has gone, and without it a dead tunnel
+is only discovered when a query fails.
 
 ## Running it
 
+With a relay to talk to, the connector enrols and then serves queries over the
+connection it opened:
+
 ```sh
-VEDAVID_PROMETHEUS_URL=http://localhost:9090 \
-VEDAVID_LISTEN=127.0.0.1:50051 \
 cargo run
 ```
 
-Both have defaults (`http://127.0.0.1:9090` and `127.0.0.1:50051`). `RUST_LOG`
-controls logging.
+Both paths are required and neither has a default, so put them wherever you can
+write. In a pod they are mounted volumes — conventionally under `/etc/vedavid`,
+which kubelet creates and the container owns — but nothing here assumes that.
 
-There is no authentication on this listener. Until the tunnel exists, bind it to
-loopback.
+`VEDAVID_RELAY_SERVER_NAME` overrides the name checked against the relay's
+certificate, which defaults to the host in `VEDAVID_RELAY_ADDR`.
+
+A missing or empty token file **stops the connector at startup** rather than
+being retried, so the pod crash-loops and says why. A quiet retry is
+indistinguishable from a relay that is down, and Kubernetes has nothing to
+report about a process that keeps running. A token that disappears *later* is
+retried, because a connector may be mid-life and the mount may come back.
+
+The enrolment token is read from a **file**, not passed as a value. Anything
+sharing the pod can read another process's environment at `/proc/<pid>/environ`,
+child processes inherit it, and it surfaces in crash dumps and `kubectl describe`
+— none of which is true of a mounted secret at mode 0400. It is also re-read on
+each enrolment attempt, so rotating the secret takes effect without restarting
+the pod, which an environment variable cannot do. A trailing newline is
+trimmed.
+
+Without `VEDAVID_RELAY_ADDR` it serves a plain local listener instead, on
+`VEDAVID_LISTEN` (default `127.0.0.1:50051`). That mode has no authentication
+and exists to exercise the query path on its own — bind it to loopback.
+
+`RUST_LOG` controls logging.
+
+## Enrolment
+
+The private key is generated in this process and never leaves it. The request
+carries **no subject and no subject alternative names**: the connector does not
+know which identity it will be given, and asking for one is refused rather than
+ignored. The relay decides, and the certificate comes back with a SPIFFE ID in
+a URI SAN.
+
+Disconnection is routine — every relay deploy causes one — so the connector
+reconnects with a backoff that grows to 30 seconds and carries jitter, which
+keeps a fleet from reconnecting in lockstep. It re-enrols only when the
+transport itself failed, since the enrolment token stays valid across restarts.
 
 ## How errors travel
 
