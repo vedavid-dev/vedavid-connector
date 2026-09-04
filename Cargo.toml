@@ -11,6 +11,12 @@ tonic-prost = "0.14"
 prost = "0.14"
 prost-types = "0.14"
 tokio-stream = "0.1"
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rustls-pemfile = "2"
+rcgen = "0.14"
+hyper-util = { version = "0.1", features = ["tokio"] }
+tower = "0.5"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
