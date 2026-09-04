@@ -50,6 +50,8 @@ async fn tunnel_forever(relay: &str, upstream: &str) -> Result<(), Box<dyn std::
     );
     let roots = std::fs::read_to_string(std::env::var("VEDAVID_RELAY_CA")?)?;
     let token_file = std::env::var("VEDAVID_ENROLMENT_TOKEN_FILE")?;
+    // Refusing to start makes a missing credential visible as a crash loop.
+    read_token(&token_file)?;
 
     let mut identity: Option<Identity> = None;
     let mut attempt = 0u32;

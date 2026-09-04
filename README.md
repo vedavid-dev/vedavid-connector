@@ -42,6 +42,12 @@ which kubelet creates and the container owns — but nothing here assumes that.
 `VEDAVID_RELAY_SERVER_NAME` overrides the name checked against the relay's
 certificate, which defaults to the host in `VEDAVID_RELAY_ADDR`.
 
+A missing or empty token file **stops the connector at startup** rather than
+being retried, so the pod crash-loops and says why. A quiet retry is
+indistinguishable from a relay that is down, and Kubernetes has nothing to
+report about a process that keeps running. A token that disappears *later* is
+retried, because a connector may be mid-life and the mount may come back.
+
 The enrolment token is read from a **file**, not passed as a value. Anything
 sharing the pod can read another process's environment at `/proc/<pid>/environ`,
 child processes inherit it, and it surfaces in crash dumps and `kubectl describe`
