@@ -29,11 +29,15 @@ connection it opened:
 
 ```sh
 VEDAVID_RELAY_ADDR=relay.vedavid.dev:8443 \
-VEDAVID_RELAY_CA=/etc/vedavid/relay-ca.pem \
-VEDAVID_ENROLMENT_TOKEN_FILE=/etc/vedavid/enrolment-token \
+VEDAVID_RELAY_CA=./relay-ca.pem \
+VEDAVID_ENROLMENT_TOKEN_FILE=./enrolment-token \
 VEDAVID_PROMETHEUS_URL=http://prometheus:9090 \
 cargo run
 ```
+
+Both paths are required and neither has a default, so put them wherever you can
+write. In a pod they are mounted volumes — conventionally under `/etc/vedavid`,
+which kubelet creates and the container owns — but nothing here assumes that.
 
 `VEDAVID_RELAY_SERVER_NAME` overrides the name checked against the relay's
 certificate, which defaults to the host in `VEDAVID_RELAY_ADDR`.
